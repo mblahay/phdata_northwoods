@@ -68,20 +68,23 @@ INSERT INTO cancellation_reasons VALUES ('D','Security');
 
 
 --Table Population------------------------------------------
+/*  
+--Below is no longer needed as table population is handled via databricks
+
 
 COPY INTO airlines
   FROM 'azure://frontier05a31ae603fe420b.blob.core.windows.net/landing/airlines'
-  CREDENTIALS=(AZURE_SAS_TOKEN= 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+  CREDENTIALS=(AZURE_SAS_TOKEN= 'xxxx')
   FILE_FORMAT = (TYPE = CSV FIELD_DELIMITER = ',' SKIP_HEADER = 1);
 
 COPY INTO airports
   FROM 'azure://frontier05a31ae603fe420b.blob.core.windows.net/landing/airports'
-  CREDENTIALS=(AZURE_SAS_TOKEN='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+  CREDENTIALS=(AZURE_SAS_TOKEN='xxx')
   FILE_FORMAT = (TYPE = CSV FIELD_DELIMITER = ',' SKIP_HEADER = 1);
 
 COPY INTO flights
   FROM 'azure://frontier05a31ae603fe420b.blob.core.windows.net/landing/flights'
-  CREDENTIALS=(AZURE_SAS_TOKEN='xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx')
+  CREDENTIALS=(AZURE_SAS_TOKEN='xxx')
   FILE_FORMAT = (TYPE = CSV FIELD_DELIMITER = ',' SKIP_HEADER = 1);
 
 
@@ -90,21 +93,31 @@ UNION
 SELECT 'airports', COUNT(1) FROM airports
 UNION
 SELECT 'flights', COUNT(1) FROM flights;
-
+*/
 
 --View Creation--------------------------------------------
 
+
 --Total number of flights by airline and airport on a monthly basis
-CREATE OR REPLACE VIEW num_flights_by_airline AS
+CREATE OR REPLACE VIEW num_flights_by_airline_airport AS
 WITH a AS (SELECT origin_airport AS airport, airline, month, year from flights
-          UNION ALL
-          SELECT destination_airport AS airport, airline, month, year from flights)
+            UNION ALL
+           SELECT destination_airport AS airport, airline, month, year from flights)
 SELECT airlines.airline,airports.airport, a.month, a.year, COUNT(1) AS flights
-FROM a
-INNER JOIN airlines ON airlines.iata_code = a.airline
-INNER JOIN airports ON airports.iata_code = a.airport
-GROUP BY airlines.airline,airports.airport, a.month, a.year
-ORDER BY airlines.airline, airports.airport, a.year,a.month;
+  FROM a
+ INNER JOIN airlines ON airlines.iata_code = a.airline
+ INNER JOIN airports ON airports.iata_code = a.airport
+ GROUP BY airlines.airline,airports.airport, a.month, a.year
+ ORDER BY airlines.airline, airports.airport, a.year,a.month;
+
+
+--Total number of flights by airline monthly basis
+CREATE OR REPLACE VIEW num_flights_by_airline AS
+SELECT airlines.airline, flights.month, flights.year, COUNT(1) AS flights
+FROM flights
+INNER JOIN airlines ON airlines.iata_code = flights.airline
+GROUP BY airlines.airline, flights.month, flights.year
+ORDER BY airlines.airline, flights.year, flights.month;
 
 
 --On time percentage of each airline for the year 2015
@@ -117,6 +130,7 @@ WHERE flights.year = 2015
 GROUP BY airlines.airline
 ORDER BY 2 DESC;
 
+
 --Airlines with the largest number of delays
 CREATE OR REPLACE VIEW largest_num_of_delays_by_airline AS
 SELECT airlines.airline, 
@@ -128,7 +142,7 @@ SELECT airlines.airline,
 ORDER BY 2 DESC;
 
 
---CAncellation reasons by airport
+--Cancellation reasons by airport
 CREATE OR REPLACE VIEW cancellation_reasons_by_airport AS
 WITH a AS (SELECT DISTINCT origin_airport as airport, cancellation_reason 
              FROM flights
@@ -142,34 +156,72 @@ SELECT airports.airport,
  GROUP BY airports.airport
  ORDER BY 1;
 
+--Cancellations by reasons and airports
+CREATE OR REPLACE VIEW cancellations_by_reasons_and_airports AS
+SELECT airports.airport, 
+       cancellation_reasons.text AS cancellation_reason,
+       COUNT(1) cancellation_count
+  FROM flights
+ INNER JOIN cancellation_reasons ON cancellation_reasons.code = flights.cancellation_reason
+ INNER JOIN airports ON airports.iata_code = flights.origin_airport
+ WHERE flights.cancellation_reason IS NOT null
+ GROUP BY airports.airport, cancellation_reasons.text
+
 
 --Delay reasons by airport
 CREATE OR REPLACE VIEW delay_reasons_by_airport AS
 WITH a AS (SELECT origin_airport as airport,
-                                 air_system_delay,
-                                 security_delay,
-                                 airline_delay,
-                                 late_aircraft_delay,
-                                 weather_delay
-FROM flights
-WHERE air_system_delay IS NOT NULL),
-b as (
-SELECT airport AS airport, CASE WHEN air_system_delay > 0 THEN 'Air System' ELSE null END AS delay_reason FROM a
-UNION
-SELECT airport AS airport, CASE WHEN security_delay > 0 THEN 'Security' ELSE null END AS delay_reason FROM a
-UNION
-SELECT airport AS airport, CASE WHEN airline_delay > 0 THEN 'Airline' ELSE null END AS delay_reason FROM a
-UNION
-SELECT airport AS airport, CASE WHEN late_aircraft_delay > 0 THEN 'Late Aircraft' ELSE null END AS delay_reason FROM a
-UNION
-SELECT airport AS airport, CASE WHEN weather_delay > 0 THEN 'Weather' ELSE null END AS delay_reason FROM a
-)
+                  air_system_delay,
+                  security_delay,
+                  airline_delay,
+                  late_aircraft_delay,
+                  weather_delay
+            FROM flights
+           WHERE air_system_delay IS NOT NULL),--If any of the delay columns are NULL, then they all are and the record doesn't contain any delay information
+
+b as (SELECT airport, 'Air System' AS delay_reason FROM a WHERE air_system_delay > 0 
+       UNION
+      SELECT airport, 'Security' AS delay_reason FROM a WHERE security_delay > 0 
+       UNION
+      SELECT airport, 'Airline' AS delay_reason FROM a WHERE airline_delay > 0 
+       UNION
+      SELECT airport, 'Late Aircraft' AS delay_reason FROM a WHERE late_aircraft_delay > 0 
+       UNION
+      SELECT airport, 'Weather' AS delay_reason FROM a WHERE weather_delay > 0 )
 SELECT airports.airport, 
        listagg(delay_reason,',') WITHIN GROUP (ORDER BY delay_reason) as delay_reasonS
 FROM b
 INNER JOIN airports ON airports.iata_code = b.airport
-WHERE delay_reason IS NOT NULL
 GROUP BY airports.airport;
+
+
+--Delay reason counts by airport
+CREATE OR REPLACE VIEW delay_reason_counts_by_airport AS
+WITH a AS (SELECT origin_airport as airport,
+                  air_system_delay,
+                  security_delay,
+                  airline_delay,
+                  late_aircraft_delay,
+                  weather_delay
+            FROM flights
+           WHERE air_system_delay IS NOT NULL),--If any of the delay columns are NULL, then they all are and the record doesn't contain any delay information
+
+b as (SELECT airport, 'Air System' AS delay_reason FROM a WHERE air_system_delay > 0 
+       UNION ALL
+      SELECT airport, 'Security' AS delay_reason FROM a WHERE security_delay > 0 
+       UNION ALL
+      SELECT airport, 'Airline' AS delay_reason FROM a WHERE airline_delay > 0 
+       UNION ALL
+      SELECT airport, 'Late Aircraft' AS delay_reason FROM a WHERE late_aircraft_delay > 0 
+       UNION ALL
+      SELECT airport, 'Weather' AS delay_reason FROM a WHERE weather_delay > 0 )
+SELECT airports.airport, 
+       delay_reason,
+       COUNT(1) AS delays
+  FROM b
+ INNER JOIN airports ON airports.iata_code = b.airport
+ WHERE delay_reason IS NOT NULL
+ GROUP BY airports.airport,delay_reason
 
 
 --Airline with the most unique routes
@@ -184,3 +236,13 @@ WITH a AS (SELECT DISTINCT origin_airport, destination_airport, airline FROM fli
 SELECT airline  --Finally, return just the airline name               
   FROM b;
            
+--Unique Routes by Airline
+CREATE OR REPLACE VIEW airline_unique_routes AS
+WITH a AS (SELECT DISTINCT origin_airport, destination_airport, airline 
+             FROM flights) --First, find all the distinct route combinations
+SELECT airlines.airline, 
+       COUNT(1) AS routes --Then count the comtinations by airline 
+  FROM a
+ INNER JOIN airlines ON airlines.iata_code = a.airline
+ GROUP BY airlines.airline
+ ORDER BY 2 DESC
