@@ -165,7 +165,7 @@ SELECT airports.airport,
  INNER JOIN cancellation_reasons ON cancellation_reasons.code = flights.cancellation_reason
  INNER JOIN airports ON airports.iata_code = flights.origin_airport
  WHERE flights.cancellation_reason IS NOT null
- GROUP BY airports.airport, cancellation_reasons.text
+ GROUP BY airports.airport, cancellation_reasons.text;
 
 
 --Delay reasons by airport
@@ -221,7 +221,7 @@ SELECT airports.airport,
   FROM b
  INNER JOIN airports ON airports.iata_code = b.airport
  WHERE delay_reason IS NOT NULL
- GROUP BY airports.airport,delay_reason
+ GROUP BY airports.airport,delay_reason;
 
 
 --Airline with the most unique routes
@@ -245,4 +245,4 @@ SELECT airlines.airline,
   FROM a
  INNER JOIN airlines ON airlines.iata_code = a.airline
  GROUP BY airlines.airline
- ORDER BY 2 DESC
+ ORDER BY 2 DESC;
